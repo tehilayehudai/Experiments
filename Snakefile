@@ -2,6 +2,7 @@ import os.path
 import os
 import subprocess
 
+
 def read_replicates(in_path):
     with open(in_path) as in_file:
         return [k.rstrip() for k in in_file]
@@ -14,8 +15,7 @@ EXPERIMENTS = {
 
 rule all:
     input:
-        "data/model/06_best_model/best_model_Infected_vs_Naive/svg/"
-
+        "data/model/06_best_model/best_model_Infected_vs_Naive/svg/",
 
 
 rule remove_cysteine_loops:
@@ -73,7 +73,7 @@ rule align_clusters:
         "data/clusters/02_top_1000_orig/{replicate}.csv",
     output:
         "data/clusters/03_aligned/{replicate}.csv",
-    threads: workflow.cores,
+    threads: workflow.cores
     benchmark:
         "benchmark/align_clusters/{replicate}.txt"
     shell:
@@ -156,7 +156,7 @@ rule align_merged_clusters:
         "data/clusters/09_merged/{group}.csv",
     output:
         "data/clusters/10_merged_aligned/{group}.csv",
-    threads: workflow.cores,
+    threads: workflow.cores
     shell:
         "motifier legacy align-sequences {input} "
         "-p {threads} --ignore-version > {output}"
@@ -234,7 +234,6 @@ rule assign_peptides_to_motifs:
         "--out {output} > {log}"
 
 
-
 rule merge_hits:
     input:
         lambda wc: expand(
@@ -256,74 +255,87 @@ rule merge_hits:
         "motifier legacy merge-hits {input} {params.condition} "
         "-l {params.label} > {output}"
 
+
 rule single_feature:
     input:
-        "data/model/01_merged_hits/{label}.csv"
+        "data/model/01_merged_hits/{label}.csv",
     output:
-        "data/model/02_single_feature/{label}_single_feature.txt"
-    shell: 
+        "data/model/02_single_feature/{label}_single_feature.txt",
+    shell:
         "evaluate-single-features {input} > {output}"
+
 
 rule hyperparameter:
     output:
-        "data/model/03_hyperparameter/hyperparameter.json"
-    shell: 
+        "data/model/03_hyperparameter/hyperparameter.json",
+    shell:
         "generate-hyperparameters > {output}"
+
 
 rule train_random_forest:
     input:
-        hits = "data/model/01_merged_hits/{label}.csv", 
-        conf = "data/model/03_hyperparameter/hyperparameter.json"
+        hits="data/model/01_merged_hits/{label}.csv",
+        conf="data/model/03_hyperparameter/hyperparameter.json",
     output:
-        directory("data/model/04_train_rf/model_{label}_{number}/")
-    shell: 
+        directory("data/model/04_train_rf/model_{label}_{number}/"),
+    shell:
         "mkdir -p {output} && train-rf {input.hits} {output} {input.conf} {wildcards.number}"
+
 
 rule select_best_model:
     input:
-        expand("data/model/04_train_rf/model_{{label}}_{number}/", 
-        number = range(0,100))
+        expand("data/model/04_train_rf/model_{{label}}_{number}/", number=range(0, 100)),
     output:
-        "data/model/05_select_best_model/best_model_{label}.txt"
+        "data/model/05_select_best_model/best_model_{label}.txt",
     params:
-        error_rate = lambda w, input: " ".join(os.path.join(k,"error_rate.txt") for k in input)
+        error_rate=lambda w, input: " ".join(
+            os.path.join(k, "error_rate.txt") for k in input
+        ),
     shell:
         "select-best-model {params.error_rate} > {output}"
 
+
 def read_best_model(best_model_path):
-    with open (str(best_model_path)) as f:
+    with open(str(best_model_path)) as f:
         best_model = os.path.split(f.readline())[0]
     return best_model
 
+
 rule copy_best_model:
     input:
-        "data/model/05_select_best_model/best_model_{label}.txt"
+        "data/model/05_select_best_model/best_model_{label}.txt",
     output:
-        directory("data/model/06_best_model/best_model_{label}")
+        directory("data/model/06_best_model/best_model_{label}"),
     params:
-        dir_name = lambda w, input: read_best_model(input)
+        dir_name=lambda w, input: read_best_model(input),
     shell:
         "cp -R {params.dir_name} {output}"
 
+
 rule create_csv_files:
     input:
-        hits = "data/model/01_merged_hits/{label}.csv",
-        error_rate = "data/model/06_best_model/best_model_{label}/error_rate.txt",
-        sorted_feature_path = "data/model/06_best_model/best_model_{label}/sorted_feature_importance.txt"
+        hits="data/model/01_merged_hits/{label}.csv",
+        error_rate="data/model/06_best_model/best_model_{label}/error_rate.txt",
+        sorted_feature_path="data/model/06_best_model/best_model_{label}/sorted_feature_importance.txt",
     output:
-        directory("data/model/06_best_model/best_model_{label}/csv/")
+        directory("data/model/06_best_model/best_model_{label}/csv/"),
     shell:
         "mkdir -p {output} && create-csv-files {input.hits} {input.error_rate} {input.sorted_feature_path} {output}"
 
+
 rule generate_heatmap:
     input:
-        "data/model/06_best_model/best_model_{label}/csv/"
+        "data/model/06_best_model/best_model_{label}/csv/",
     output:
-        "data/model/06_best_model/best_model_{label}/svg/"
+        "data/model/06_best_model/best_model_{label}/svg/",
     run:
         os.mkdir(str(output))
         for file in os.listdir(str(input)):
             if file.endswith(".csv"):
-                subprocess.run(["generate-heatmap", os.path.join(str(input), file), os.path.join(str(output), os.path.splitext(file)[0])])
-
-
+                subprocess.run(
+                    [
+                        "generate-heatmap",
+                        os.path.join(str(input), file),
+                        os.path.join(str(output), os.path.splitext(file)[0]),
+                    ]
+                )
