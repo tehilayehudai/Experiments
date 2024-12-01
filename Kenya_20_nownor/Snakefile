@@ -2,6 +2,8 @@ import os.path
 import os
 import subprocess
 
+def get_group(individual):
+    return individual.split("_")[0]
 
 def read_replicates(in_path, kind, individual, invert):
     """Read replicated from txt file with 2 columns separated by tab.
@@ -21,7 +23,7 @@ def read_replicates(in_path, kind, individual, invert):
     return results
 
 
-EXPERIMENTS = ["Kenya_20", "Kenya_21", "Kenya_22", "Kenya_23", "Kenya_24", "Kenya_25"]
+EXPERIMENTS = ["Kenya_20", "Kenya_21", "Kenya_22", "Kenya_23", "Kenya_24", "Kenya_25", "Miyazaki_13"]
 
 
 rule all:
@@ -113,7 +115,7 @@ rule concat_meme_clusters:
         lambda wc: expand(
             "data/clusters/04_gaps_removed/{replicate}.csv",
             replicate=read_replicates(
-                "input/groups/Kenya.txt", "Train", wc.individual, False
+                f"input/groups/{get_group(wc.individual)}.txt", "Train", wc.individual, False
             ),
         ),
     output:
@@ -150,7 +152,7 @@ rule concat_reduced_clusters:
         lambda wc: expand(
             "data/clusters/02_top_1000_orig/{replicate}.csv",
             replicate=read_replicates(
-                "input/groups/Kenya.txt", "Train", wc.individual, False
+                f"input/groups/{get_group(wc.individual)}.txt", "Train", wc.individual, False
             ),
         ),
     output:
@@ -259,10 +261,10 @@ rule merge_hits:
             f"data/model/00_hits/{{replicate}}_peptides_vs_{wc.individual}_motifs.txt",
             replicate=[
                 *read_replicates(
-                    "input/groups/Kenya.txt", "Train", wc.individual, False
+                    f"input/groups/{get_group(wc.individual)}.txt", "Train", wc.individual, False
                 ),
                 *read_replicates(
-                    "input/groups/Kenya.txt", "Train", wc.individual, True
+                    f"input/groups/{get_group(wc.individual)}.txt", "Train", wc.individual, True
                 ),
             ],
         ),
@@ -272,7 +274,7 @@ rule merge_hits:
         condition=lambda wc: " ".join(
             f"-c {k}"
             for k in read_replicates(
-                "input/groups/Kenya.txt", "Train", wc.individual, False
+                f"input/groups/{get_group(wc.individual)}.txt", "Train", wc.individual, False
             )
         ),
     shell:
@@ -373,10 +375,10 @@ rule merge_hits_cross:
             f"data/model/00_hits/{{replicate}}_peptides_vs_{wc.individual}_motifs.txt",
             replicate=[
                 *read_replicates(
-                    "input/groups/Kenya.txt", "Test", wc.individual, False
+                    f"input/groups/{get_group(wc.individual)}.txt", "Test", wc.individual, False
                 ),
                 *read_replicates(
-                    "input/groups/Kenya.txt", "Test", wc.individual, True
+                    f"input/groups/{get_group(wc.individual)}.txt", "Test", wc.individual, True
                 ),
             ],
         ),
@@ -386,7 +388,7 @@ rule merge_hits_cross:
         condition=lambda wc: " ".join(
             f"-c {k}"
             for k in read_replicates(
-                "input/groups/Kenya.txt", "Test", wc.individual, False
+                f"input/groups/{get_group(wc.individual)}.txt", "Test", wc.individual, False
             )
         ),
     shell:
