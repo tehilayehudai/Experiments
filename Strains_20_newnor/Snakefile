@@ -25,14 +25,8 @@ CROSS_EXPERIMENTS = {
 
 rule all:
     input:
-        "data/model/08_best_model_svg/best_model_Kenya_vs_Miyazaki",
-        "data/cross_model/01_prediction/Kenya+Miyazaki_cross_on_Kenya_vs_Miyazaki",
-        "data/model/08_best_model_svg/best_model_Miyazaki_vs_Kenya",
-        "data/cross_model/01_prediction/Miyazaki+Kenya_cross_on_Miyazaki_vs_Kenya",
-        "data/model/08_best_model_svg/best_model_Ethiopia_vs_Osorno",
-        "data/cross_model/01_prediction/Ethiopia+Osorno_cross_on_Ethiopia_vs_Osorno",
-        "data/model/08_best_model_svg/best_model_Osorno_vs_Ethiopia",
-        "data/cross_model/01_prediction/Osorno+Ethiopia_cross_on_Osorno_vs_Ethiopia",
+        expand("data/model/08_best_model_svg/best_model_{Experiment}", Experiment = EXPERIMENTS.keys()),
+        [f"data/cross_model/01_prediction/{k}_on_{j}" for k,j in zip(CROSS_EXPERIMENTS.keys(), EXPERIMENTS.keys())],
 
 
 rule remove_cysteine_loops:
