@@ -1,0 +1,6 @@
+.snakemake/
+benchmark/
+data/
+input/
+logs/
+*.png
