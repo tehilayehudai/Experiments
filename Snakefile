@@ -7,15 +7,22 @@ def read_replicates(in_path):
     with open(in_path) as in_file:
         return [k.rstrip() for k in in_file]
 
+INFECTED = read_replicates("input/groups/Infected_test.txt")
+NAIVE = read_replicates("input/groups/Naive_test.txt")
 
 EXPERIMENTS = {
-    "Infected_vs_Naive": ("Infected", "Naive"),
+    "Infected_vs_Naive": ("Infected", "Naive")
+}
+
+CROSS_EXPERIMENTS = {
+    "Infected_cross": ("Infected", "Infected_test", "Naive_test")
 }
 
 
 rule all:
     input:
         "data/model/06_best_model/best_model_Infected_vs_Naive/svg/",
+        "data/cross_model/00_merged_hits/Infected_cross.csv"
 
 
 rule remove_cysteine_loops:
@@ -339,3 +346,24 @@ rule generate_heatmap:
                         os.path.join(str(output), os.path.splitext(file)[0]),
                     ]
                 )
+
+rule merge_hits_cross:
+    input:
+        lambda wc: expand(
+            f"data/model/00_hits/{{replicate}}_peptides_vs_{CROSS_EXPERIMENTS[wc.label][0]}_motifs.txt",
+            replicate=[
+                *read_replicates(f"input/groups/{CROSS_EXPERIMENTS[wc.label][1]}.txt"),
+                *read_replicates(f"input/groups/{CROSS_EXPERIMENTS[wc.label][2]}.txt"),
+            ],
+        ),
+    output:
+        "data/cross_model/00_merged_hits/{label}.csv",
+    params:
+        condition=lambda wc: " ".join(
+            f"-c {k}"
+            for k in read_replicates(f"input/groups/{CROSS_EXPERIMENTS[wc.label][1]}.txt")
+        ),
+        label=lambda wc: CROSS_EXPERIMENTS[wc.label][0],
+    shell:
+        "motifier legacy merge-hits {input} {params.condition} "
+        "-l {params.label} > {output}"
