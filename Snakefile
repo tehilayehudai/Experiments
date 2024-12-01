@@ -7,22 +7,18 @@ def read_replicates(in_path):
     with open(in_path) as in_file:
         return [k.rstrip() for k in in_file]
 
-INFECTED = read_replicates("input/groups/Infected_test.txt")
-NAIVE = read_replicates("input/groups/Naive_test.txt")
 
-EXPERIMENTS = {
-    "Infected_vs_Naive": ("Infected", "Naive")
-}
+EXPERIMENTS = {"Infected_vs_Naive": ("Infected", "Naive")}
 
 CROSS_EXPERIMENTS = {
-    "Infected_cross": ("Infected", "Infected_test", "Naive_test")
+    "Infected+Naive_cross": ("Infected", "Infected_test", "Naive_test")
 }
 
 
 rule all:
     input:
-        "data/model/06_best_model/best_model_Infected_vs_Naive/svg/",
-        "data/cross_model/00_merged_hits/Infected_cross.csv"
+        "data/model/08_best_model_svg/best_model_Infected_vs_Naive",
+        "data/cross_model/01_prediction/Infected+Naive_cross_on_Infected_vs_Naive",
 
 
 rule remove_cysteine_loops:
@@ -312,11 +308,13 @@ rule copy_best_model:
     input:
         "data/model/05_select_best_model/best_model_{label}.txt",
     output:
-        directory("data/model/06_best_model/best_model_{label}"),
+        "data/model/06_best_model/best_model_{label}/error_rate.txt",
+        "data/model/06_best_model/best_model_{label}/sorted_feature_importance.txt",
+        dir=directory("data/model/06_best_model/best_model_{label}/"),
     params:
         dir_name=lambda w, input: read_best_model(input),
     shell:
-        "cp -R {params.dir_name} {output}"
+        "mkdir -p {output.dir} && cp -R {params.dir_name}/* {output.dir}"
 
 
 rule create_csv_files:
@@ -325,16 +323,16 @@ rule create_csv_files:
         error_rate="data/model/06_best_model/best_model_{label}/error_rate.txt",
         sorted_feature_path="data/model/06_best_model/best_model_{label}/sorted_feature_importance.txt",
     output:
-        directory("data/model/06_best_model/best_model_{label}/csv/"),
+        directory("data/model/07_best_model_csv/best_model_{label}/"),
     shell:
         "mkdir -p {output} && create-csv-files {input.hits} {input.error_rate} {input.sorted_feature_path} {output}"
 
 
 rule generate_heatmap:
     input:
-        "data/model/06_best_model/best_model_{label}/csv/",
+        "data/model/07_best_model_csv/best_model_{label}/",
     output:
-        "data/model/06_best_model/best_model_{label}/svg/",
+        directory("data/model/08_best_model_svg/best_model_{label}/"),
     run:
         os.mkdir(str(output))
         for file in os.listdir(str(input)):
@@ -346,6 +344,7 @@ rule generate_heatmap:
                         os.path.join(str(output), os.path.splitext(file)[0]),
                     ]
                 )
+
 
 rule merge_hits_cross:
     input:
@@ -361,9 +360,21 @@ rule merge_hits_cross:
     params:
         condition=lambda wc: " ".join(
             f"-c {k}"
-            for k in read_replicates(f"input/groups/{CROSS_EXPERIMENTS[wc.label][1]}.txt")
+            for k in read_replicates(
+                f"input/groups/{CROSS_EXPERIMENTS[wc.label][1]}.txt"
+            )
         ),
         label=lambda wc: CROSS_EXPERIMENTS[wc.label][0],
     shell:
         "motifier legacy merge-hits {input} {params.condition} "
         "-l {params.label} > {output}"
+
+
+rule perdiction:
+    input:
+        best_model="data/model/06_best_model/best_model_{model_label}",
+        cross_hits="data/cross_model/00_merged_hits/{cross_label}.csv",
+    output:
+        directory("data/cross_model/01_prediction/{cross_label}_on_{model_label}"),
+    shell:
+        "predict {input.best_model} {input.cross_hits} {output}"
