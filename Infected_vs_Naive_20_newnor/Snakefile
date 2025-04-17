@@ -8,17 +8,27 @@ def read_replicates(in_path):
         return [k.rstrip() for k in in_file]
 
 
-EXPERIMENTS = {"Infected_vs_Naive": ("Infected", "Naive")}
+EXPERIMENTS = {
+    "Infected_vs_Naive": ("Infected", "Naive"),
+    "Naive_vs_Infected": ("Naive", "Infected"),
+}
 
 CROSS_EXPERIMENTS = {
-    "Infected+Naive_cross": ("Infected", "Infected_test", "Naive_test")
+    "Infected+Naive_cross": ("Infected", "Infected_test", "Naive_test"),
+    "Naive+Infected_cross": ("Naive", "Naive_test", "Infected_test"),
 }
 
 
 rule all:
     input:
-        "data/model/08_best_model_svg/best_model_Infected_vs_Naive",
-        "data/cross_model/01_prediction/Infected+Naive_cross_on_Infected_vs_Naive",
+        expand(
+            "data/model/08_best_model_svg/best_model_{Experiment}",
+            Experiment=EXPERIMENTS.keys(),
+        ),
+        [
+            f"data/cross_model/02_confusing_matrix/{k}_on_{j}"
+            for k, j in zip(CROSS_EXPERIMENTS.keys(), EXPERIMENTS.keys())
+        ],
 
 
 rule remove_cysteine_loops:
@@ -378,3 +388,21 @@ rule perdiction:
         directory("data/cross_model/01_prediction/{cross_label}_on_{model_label}"),
     shell:
         "predict {input.best_model} {input.cross_hits} {output}"
+
+
+rule confusing_matrix:
+    input:
+        "data/cross_model/01_prediction/{cross_label}_on_{model_label}",
+    output:
+        directory("data/cross_model/02_confusing_matrix/{cross_label}_on_{model_label}"),
+    run:
+        os.mkdir(str(output))
+        for file in os.listdir(str(input)):
+            if file.startswith("Top"):
+                subprocess.run(
+                    [
+                        "generate-confusing-matrix",
+                        os.path.join(str(input), file),
+                        os.path.join(str(output), os.path.splitext(file)[0]),
+                    ]
+                )

@@ -1,0 +1,160 @@
+import os.path
+import os
+import subprocess
+
+def read_replicates(in_path):
+    with open(in_path) as in_file:
+        return [k.rstrip() for k in in_file]
+
+EXPERIMENTS = {"Infected_vs_Naive": ("Infected", "Naive"),
+}
+
+CROSS_EXPERIMENTS = {
+    "Infected+Naive_cross": ("Infected", "Infected_test", "Naive_test"),
+}
+
+
+rule all:
+    input:
+        expand("data/model/08_best_model_svg/best_model_{Experiment}", Experiment = EXPERIMENTS.keys()),
+        [f'data/cross_model/02_prediction/{k}_on_{j}' for k,j in zip(CROSS_EXPERIMENTS.keys(), EXPERIMENTS.keys())],
+        expand("data/model/02_single_feature/{Experiment}_single_feature.txt", Experiment = EXPERIMENTS.keys()),
+
+
+rule single_feature:
+    input:
+        "data/model/01_merged_hits/{label}.csv",
+    output:
+        "data/model/02_single_feature/{label}_single_feature.txt",
+    shell:
+        "evaluate-single-features {input} > {output}"
+
+
+rule hyperparameter:
+    output:
+        "data/model/03_hyperparameter/hyperparameter.json",
+    shell:
+        "generate-hyperparameters > {output}"
+
+
+rule train_random_forest:
+    input:
+        hits="data/model/01_merged_hits/{label}.csv",
+        conf="data/model/03_hyperparameter/hyperparameter.json",
+    output:
+        directory("data/model/04_train_rf/model_{label}_{number}/"),
+    shell:
+        "mkdir -p {output} && train-rf {input.hits} {output} {input.conf} {wildcards.number}"
+
+
+rule select_best_model:
+    input:
+        expand("data/model/04_train_rf/model_{{label}}_{number}/", number=range(0, 100)),
+    output:
+        "data/model/05_select_best_model/best_model_{label}.txt",
+    params:
+        error_rate=lambda w, input: " ".join(
+            os.path.join(k, "error_rate.txt") for k in input
+        ),
+    shell:
+        "select-best-model {params.error_rate} > {output}"
+
+
+def read_best_model(best_model_path):
+    with open(str(best_model_path)) as f:
+        best_model = os.path.split(f.readline())[0]
+    return best_model
+
+
+rule copy_best_model:
+    input:
+        "data/model/05_select_best_model/best_model_{label}.txt",
+    output:
+        "data/model/06_best_model/best_model_{label}/error_rate.txt",
+        "data/model/06_best_model/best_model_{label}/sorted_feature_importance.txt",
+        dir=directory("data/model/06_best_model/best_model_{label}/"),
+    params:
+        dir_name=lambda w, input: read_best_model(input),
+    shell:
+        "mkdir -p {output.dir} && cp -R {params.dir_name}/* {output.dir}"
+
+
+rule create_csv_files:
+    input:
+        hits="data/model/01_merged_hits/{label}.csv",
+        error_rate="data/model/06_best_model/best_model_{label}/error_rate.txt",
+        sorted_feature_path="data/model/06_best_model/best_model_{label}/sorted_feature_importance.txt",
+    output:
+        directory("data/model/07_best_model_csv/best_model_{label}/"),
+    shell:
+        "mkdir -p {output} && create-csv-files {input.hits} {input.error_rate} {input.sorted_feature_path} {output}"
+
+
+rule generate_heatmap:
+    input:
+        "data/model/07_best_model_csv/best_model_{label}/",
+    output:
+        directory("data/model/08_best_model_svg/best_model_{label}/"),
+    run:
+        os.mkdir(str(output))
+        for file in os.listdir(str(input)):
+            if file.endswith(".csv"):
+                subprocess.run(
+                    [
+                        "generate-heatmap",
+                        os.path.join(str(input), file),
+                        os.path.join(str(output), os.path.splitext(file)[0]),
+                    ]
+                )
+
+rule assign_peptides_to_motifs:
+    input:
+        motifs="data/clusters/13_top_merged_meme/{group}.txt",
+        cutoffs="data/clusters/14_cutoffs/{group}.txt",
+        peptides="input/peptides/{replicate}.faa",
+    output:
+        "data/cross_model/00_hits/{replicate}_peptides_vs_{group}_motifs.txt",
+    log:
+        "logs/PSSM_score_Peptide/hits/{replicate}_peptides_vs_{group}_motifs.log",
+    benchmark:
+        "benchmark/PSSM_score_Peptide/hits/{replicate}_peptides_vs_{group}_motifs.txt"
+    threads: workflow.cores
+    shell:
+        "pssm_score_peptide CalcPSSM_Hits "
+        "--pssm {input.motifs} --pssm_cutoffs {input.cutoffs} --seq {input.peptides} "
+        "--out {output} > {log}"
+
+
+rule merge_hits_cross:
+    input:
+        lambda wc: expand(
+            f"data/cross_model/00_hits/{{replicate}}_peptides_vs_{CROSS_EXPERIMENTS[wc.label][0]}_motifs.txt",
+            replicate=[
+                *read_replicates(f"input/groups/{CROSS_EXPERIMENTS[wc.label][1]}.txt"),
+                *read_replicates(f"input/groups/{CROSS_EXPERIMENTS[wc.label][2]}.txt"),
+            ],
+        ),
+    output:
+        "data/cross_model/01_merged_hits/{label}.csv",
+    params:
+        condition=lambda wc: " ".join(
+            f"-c {k}"
+            for k in read_replicates(
+                f"input/groups/{CROSS_EXPERIMENTS[wc.label][1]}.txt"
+            )
+        ),
+        label=lambda wc: CROSS_EXPERIMENTS[wc.label][0],
+    shell:
+        "motifier legacy merge-hits {input} {params.condition} "
+        "-l {params.label} > {output}"
+
+rule perdiction:
+    input:
+        best_model="data/model/06_best_model/best_model_{model_label}",
+        cross_hits="data/cross_model/01_merged_hits/{cross_label}.csv",
+    output:
+        directory("data/cross_model/02_prediction/{cross_label}_on_{model_label}"),
+    shell:
+        "predict {input.best_model} {input.cross_hits} {output}"
+
+           

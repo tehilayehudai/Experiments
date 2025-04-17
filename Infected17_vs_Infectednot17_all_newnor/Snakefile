@@ -2,20 +2,20 @@ import os.path
 import os
 import subprocess
 
-
 def read_replicates(in_path):
     with open(in_path) as in_file:
-        return [k.rstrip() for k in in_file]
-
-
+        return [k_stripped for k in in_file if (k_stripped := k.rstrip())]
+        
 EXPERIMENTS = {
-    "Infected_vs_Naive": ("Infected", "Naive"),
-    "Naive_vs_Infected": ("Naive", "Infected"),
+    "Infected_vs_Infectednot17": ("Infected", "Infectednot17"),
 }
 
 CROSS_EXPERIMENTS = {
-    "Infected+Naive_cross": ("Infected", "Infected_test", "Naive_test"),
-    "Naive+Infected_cross": ("Naive", "Naive_test", "Infected_test"),
+    "Infected_vs_Infectednot17_cross": (
+        "Infected",
+        "Infected17_Test",
+        "Infectednot17_Test",
+    ),
 }
 
 
@@ -26,211 +26,16 @@ rule all:
             Experiment=EXPERIMENTS.keys(),
         ),
         [
-            f"data/cross_model/04_confusing_matrix/{k}_on_{j}"
+            f"data/cross_model/02_confusing_matrix/{k}_on_{j}"
             for k, j in zip(CROSS_EXPERIMENTS.keys(), EXPERIMENTS.keys())
         ],
-
-
-rule remove_cysteine_loops:
-    input:
-        "input/peptides/{replicate}.faa",
-    output:
-        clashes="data/peptides/nocys/{replicate}.csv",
-        out="data/peptides/nocys/{replicate}.faa",
-    shell:
-        "motifier legacy remove-cysteine-loop {input} {output.clashes} {output.out}"
-
-
-rule cluster_peptides:
-    input:
-        "data/peptides/nocys/{replicate}.faa",
-    output:
-        "data/clusters/00_raw/{replicate}.csv",
-    params:
-        threshold=0.6,
-        word_length=2,
-        discard=4,
-        mode=1,
-    shell:
-        "motifier legacy cluster {input} --threshold {params.threshold} "
-        "--word_length {params.word_length} --discard {params.discard} "
-        "--cluster_algorithm_mode {params.mode} > {output}"
-
-
-rule reduce_clusters:
-    input:
-        "data/clusters/00_raw/{replicate}.csv",
-    output:
-        "data/clusters/01_top_1000/{replicate}.csv",
-    params:
-        top_clusters=100,
-        top_peptides=1000,
-    shell:
-        "motifier legacy filter-top-peptides {input} {params.top_peptides} | "
-        "motifier legacy filter-top-clusters - {params.top_clusters} > {output}"
-
-
-rule restore_sequences:
-    input:
-        cluster="data/clusters/01_top_1000/{replicate}.csv",
-        faa="input/peptides/{replicate}.faa",
-        nocys="data/peptides/nocys/{replicate}.csv",
-    output:
-        "data/clusters/02_top_1000_orig/{replicate}.csv",
-    shell:
-        "motifier legacy replace-sequences {input.cluster} {input.faa} {input.nocys} > {output}"
-
-
-rule align_clusters:
-    input:
-        "data/clusters/02_top_1000_orig/{replicate}.csv",
-    output:
-        "data/clusters/03_aligned/{replicate}.csv",
-    threads: workflow.cores
-    benchmark:
-        "benchmark/align_clusters/{replicate}.txt"
-    shell:
-        "motifier legacy align-sequences {input} "
-        "-p {threads} --ignore-version > {output}"
-
-
-rule remove_gaps:
-    input:
-        "data/clusters/03_aligned/{replicate}.csv",
-    output:
-        "data/clusters/04_gaps_removed/{replicate}.csv",
-    params:
-        threshold=0.5,
-    shell:
-        "motifier legacy remove-gappy-columns "
-        "{input} {params.threshold} > {output}"
-
-
-rule concat_meme_clusters:
-    input:
-        lambda wc: expand(
-            "data/clusters/04_gaps_removed/{replicate}.csv",
-            replicate=read_replicates(f"input/groups/{wc.group}.txt"),
+        expand(
+            "data/model/02_single_feature/{Experiment}_single_feature.txt",
+            Experiment=EXPERIMENTS.keys(),
         ),
-    output:
-        meme="data/clusters/05_concatenated_meme/{group}.meme",
-        input_list="data/clusters/05_concatenated_meme/{group}.txt",
-    shell:
-        "echo {input} > {output.input_list} &&"
-        "motifier legacy concat-clusters --prefix hiv_neg_cor_pos {input} | "
-        "motifier legacy create-meme - > {output.meme}"
 
 
-rule run_unitepssms:
-    input:
-        "data/clusters/05_concatenated_meme/{group}.meme",
-    output:
-        "data/clusters/06_unite_pssms/{group}",
-    params:
-        aln_cutoff=24,
-        pcc_cutoff=0.7,
-    shell:
-        "unite_pssms --pssm {input} --out {output} "
-        "--aln_cutoff {params.aln_cutoff} --pcc_cutoff {params.pcc_cutoff}"
-
-
-rule sort_unitepssms:
-    input:
-        "data/clusters/06_unite_pssms/{group}",
-    output:
-        "data/clusters/07_sorted_unite_pssms/{group}",
-    shell:
-        "motifier legacy sort-unitepssm-groups {input} > {output}"
-
-
-rule concat_reduced_clusters:
-    input:
-        lambda wc: expand(
-            "data/clusters/02_top_1000_orig/{replicate}.csv",
-            replicate=read_replicates(f"input/groups/{wc.group}.txt"),
-        ),
-    output:
-        "data/clusters/08_concatenated_top_1000/{group}.csv",
-    shell:
-        "motifier legacy concat-clusters --prefix hiv_neg_cor_pos {input} > {output}"
-
-
-rule merge_clusters:
-    input:
-        csv="data/clusters/08_concatenated_top_1000/{group}.csv",
-        merging_list="data/clusters/07_sorted_unite_pssms/{group}",
-    output:
-        "data/clusters/09_merged/{group}.csv",
-    shell:
-        "motifier legacy merge-clusters --prefix {wildcards.group} "
-        "{input.csv} {input.merging_list} > {output}"
-
-
-rule align_merged_clusters:
-    input:
-        "data/clusters/09_merged/{group}.csv",
-    output:
-        "data/clusters/10_merged_aligned/{group}.csv",
-    threads: workflow.cores
-    shell:
-        "motifier legacy align-sequences {input} "
-        "-p {threads} --ignore-version > {output}"
-
-
-rule remove_gaps_from_merged_clusters:
-    input:
-        "data/clusters/10_merged_aligned/{group}.csv",
-    output:
-        "data/clusters/11_merged_gaps_removed/{group}.csv",
-    params:
-        threshold=0.5,
-    shell:
-        "motifier legacy remove-gappy-columns "
-        "{input} {params.threshold} > {output}"
-
-
-rule create_merged_meme:
-    input:
-        "data/clusters/11_merged_gaps_removed/{group}.csv",
-    output:
-        "data/clusters/12_merged_meme/{group}.txt",
-    shell:
-        "motifier legacy create-meme {input} > {output}"
-
-
-rule get_top_meme:
-    input:
-        "data/clusters/12_merged_meme/{group}.txt",
-    output:
-        "data/clusters/13_top_merged_meme/{group}.txt",
-    params:
-        num_motifs=400,
-    shell:
-        "motifier legacy head-meme {input} {params.num_motifs} > {output}"
-
-
-rule calculate_cutoffs:
-    input:
-        "data/clusters/13_top_merged_meme/{group}.txt",
-    output:
-        "data/clusters/14_cutoffs/{group}.txt",
-    params:
-        perc=0.05,
-        min_length=4,
-        max_length=14,
-    log:
-        "logs/PSSM_score_Peptide/{group}.log",
-    benchmark:
-        "benchmark/PSSM_score_Peptide/{group}.txt"
-    threads: workflow.cores
-    shell:
-        "pssm_score_peptide CalcPSSM_Cutoff "
-        "--pssm {input} --pssm_cutoffs {output} --total_memes 0 "
-        "--cutoff_random_peptitdes_percentile {params.perc} "
-        "--min_library_length_cutoff {params.min_length} "
-        "--max_library_length_cutoff {params.max_length} > {log}"
-
-
+# Create model
 rule assign_peptides_to_motifs:
     input:
         motifs="data/clusters/13_top_merged_meme/{group}.txt",
@@ -358,6 +163,7 @@ rule generate_heatmap:
                 )
 
 
+# Test set
 rule merge_hits_cross:
     input:
         lambda wc: expand(
@@ -396,7 +202,7 @@ rule confusing_matrix:
     input:
         "data/cross_model/01_prediction/{cross_label}_on_{model_label}",
     output:
-        directory("data/cross_model/04_confusing_matrix/{cross_label}_on_{model_label}"),
+        directory("data/cross_model/02_confusing_matrix/{cross_label}_on_{model_label}"),
     run:
         os.mkdir(str(output))
         for file in os.listdir(str(input)):
